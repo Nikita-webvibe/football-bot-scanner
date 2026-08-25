@@ -2,11 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 TELEGRAM BOT SCANNER ДЛЯ ФУТБОЛЬНОЙ СТРАТЕГИИ
-Версия 1.2 (24/7 Cloud Ready + Дата и время по МСК)
+Версия 1.3 (Render Cloud 24/7 с веб-портом)
 """
 
+import os
 import time
+import threading
 import requests
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 import pytz
 
@@ -17,7 +20,6 @@ TELEGRAM_TOKEN = "8604691930:AAHrF69O3VVkamn-RB7IJGexYj86N8Dq3Uo"
 TELEGRAM_CHAT_ID = "5770149140"
 ODDS_API_KEY = "aa68140b05d3fb8a1619dd2bdf7286e7"
 
-# Часовой пояс Москва
 MSK_TZ = pytz.timezone("Europe/Moscow")
 
 WEEKDAYS_RU = {
@@ -38,8 +40,26 @@ MONITORED_LEAGUES = {
 
 sent_matches = set()
 
+# ============================================================================
+# МИНИ ВЕБ-СЕРВЕР ДЛЯ RENDER (ЧТОБЫ НЕ ПАДАЛ ПО ПОРТУ)
+# ============================================================================
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(b"Football Bot Scanner is Running 24/7 OK!")
+
+    def log_message(self, format, *args):
+        return  # Отключаем лишний спам в логи
+
+def start_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    print(f"Веб-сервер запущен на порту {port}")
+    server.serve_forever()
+
 def send_telegram_message(text: str):
-    """Отправляет сообщение в Telegram"""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -54,9 +74,7 @@ def send_telegram_message(text: str):
         return False
 
 def format_commence_time(utc_iso_string: str) -> str:
-    """Переводит UTC дату из API в удобный формат МСК"""
     try:
-        # Пример: 2026-08-28T18:30:00Z
         utc_dt = datetime.strptime(utc_iso_string, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=pytz.utc)
         msk_dt = utc_dt.astimezone(MSK_TZ)
         day_str = msk_dt.strftime("%d.%m")
@@ -67,14 +85,10 @@ def format_commence_time(utc_iso_string: str) -> str:
         return "Время уточняется"
 
 def check_match_criteria(p1, px, p2, allowed_strat):
-    """Проверка фильтра стратегии"""
     fav_odd = min(p1, p2)
-    
-    # 1. Диапазон фаворита 2.15-2.70 и ничья >= 3.25
     if not (2.15 <= fav_odd <= 2.70 and px >= 3.25):
         return None
 
-    # 2. Определение стратегии под лигу
     is_home_fav = (p1 < p2)
     required_market = "1X + ТБ 1.5" if is_home_fav else "2X + ТБ 1.5"
 
@@ -86,7 +100,6 @@ def check_match_criteria(p1, px, p2, allowed_strat):
     return required_market
 
 def scan_lines():
-    """Сканирует линии букмекеров"""
     now_str = datetime.now(MSK_TZ).strftime('%Y-%m-%d %H:%M:%S')
     print(f"\n[{now_str} МСК] Проверка линий...")
     remaining_requests = "N/A"
@@ -160,7 +173,7 @@ def scan_lines():
                     msg += "<i>Если прематч кэф от 2.00 — ставим сразу. Если ниже — ловим 2.00+ на 10-15 минуте лайва!</i>"
                     
                     if send_telegram_message(msg):
-                        print(f"  ✓ Сигнал отправлен: {home_team} — {away_team} ({match_time_msk})")
+                        print(f"  ✓ Сигнал отправлен: {home_team} — {away_team}")
                     time.sleep(1.2)
 
         except Exception as e:
@@ -175,8 +188,13 @@ if __name__ == "__main__":
     print("БОТ-СКАНЕР ЗАПУЩЕН")
     print("=" * 60)
     
-    send_telegram_message("🚀 <b>Сканер обновлен: добавлено время матчей по МСК!</b>")
+    # 1. Запуск мини-сервера в фоновом потоке для Render
+    web_thread = threading.Thread(target=start_web_server, daemon=True)
+    web_thread.start()
     
+    send_telegram_message("🚀 <b>Сканер 24/7 успешно запущен на облачном сервере Render!</b>")
+    
+    # 2. Бесконечный цикл сканирования
     while True:
         try:
             scan_lines()
