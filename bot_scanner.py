@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 TELEGRAM BOT SCANNER ДЛЯ ФУТБОЛЬНОЙ СТРАТЕГИИ
-Версия 1.3 (Render Cloud 24/7 с веб-портом)
+Версия 1.4 (С постоянной памятью sent_matches.json)
 """
 
 import os
+import json
 import time
 import threading
 import requests
@@ -21,6 +22,7 @@ TELEGRAM_CHAT_ID = "5770149140"
 ODDS_API_KEY = "aa68140b05d3fb8a1619dd2bdf7286e7"
 
 MSK_TZ = pytz.timezone("Europe/Moscow")
+DB_FILE = "sent_matches.json"
 
 WEEKDAYS_RU = {
     0: "Пн", 1: "Вт", 2: "Ср", 3: "Чт", 4: "Пт", 5: "Сб", 6: "Вс"
@@ -38,10 +40,30 @@ MONITORED_LEAGUES = {
     "soccer_france_ligue_two": {"name": "Франция, Лига 2", "strat": "1X_TB15"},
 }
 
-sent_matches = set()
+def load_sent_matches() -> set:
+    """Загружает список отправленных ID из файла на диске"""
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return set(data)
+        except Exception as e:
+            print(f"Ошибка чтения {DB_FILE}: {e}")
+    return set()
+
+def save_sent_match(match_id: str):
+    """Сохраняет ID отправленного матча в файл навсегда"""
+    sent_matches.add(match_id)
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(list(sent_matches), f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Ошибка сохранения {DB_FILE}: {e}")
+
+sent_matches = load_sent_matches()
 
 # ============================================================================
-# МИНИ ВЕБ-СЕРВЕР ДЛЯ RENDER (ЧТОБЫ НЕ ПАДАЛ ПО ПОРТУ)
+# МИНИ ВЕБ-СЕРВЕР ДЛЯ RENDER
 # ============================================================================
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -51,7 +73,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Football Bot Scanner is Running 24/7 OK!")
 
     def log_message(self, format, *args):
-        return  # Отключаем лишний спам в логи
+        return
 
 def start_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -103,6 +125,7 @@ def scan_lines():
     now_str = datetime.now(MSK_TZ).strftime('%Y-%m-%d %H:%M:%S')
     print(f"\n[{now_str} МСК] Проверка линий...")
     remaining_requests = "N/A"
+    new_signals_count = 0
     
     for league_key, league_info in MONITORED_LEAGUES.items():
         url = f"https://api.the-odds-api.com/v4/sports/{league_key}/odds/"
@@ -124,6 +147,7 @@ def scan_lines():
             
             for game in games:
                 game_id = game.get("id")
+                # Ключевая проверка: если матч уже отправлялся — пропускаем
                 if game_id in sent_matches:
                     continue
 
@@ -158,7 +182,9 @@ def scan_lines():
                         })
 
                 if matched_books:
-                    sent_matches.add(game_id)
+                    # Запоминаем ID матча навсегда в файл
+                    save_sent_match(game_id)
+                    new_signals_count += 1
                     target_market = matched_books[0]["market"]
 
                     msg = f"⚽ <b>{league_info['name']}</b>\n"
@@ -173,7 +199,7 @@ def scan_lines():
                     msg += "<i>Если прематч кэф от 2.00 — ставим сразу. Если ниже — ловим 2.00+ на 10-15 минуте лайва!</i>"
                     
                     if send_telegram_message(msg):
-                        print(f"  ✓ Сигнал отправлен: {home_team} — {away_team}")
+                        print(f"  ✓ Новый сигнал отправлен: {home_team} — {away_team}")
                     time.sleep(1.2)
 
         except Exception as e:
@@ -181,20 +207,17 @@ def scan_lines():
             
         time.sleep(1.5)
 
-    print(f"Осталось запросов к API: {remaining_requests}")
+    print(f"Проверка завершена. Новых сигналов: {new_signals_count}. Запросов к API осталось: {remaining_requests}")
 
 if __name__ == "__main__":
     print("=" * 60)
     print("БОТ-СКАНЕР ЗАПУЩЕН")
+    print(f"В памяти уже сохранено {len(sent_matches)} ранее отправленных матчей.")
     print("=" * 60)
     
-    # 1. Запуск мини-сервера в фоновом потоке для Render
     web_thread = threading.Thread(target=start_web_server, daemon=True)
     web_thread.start()
     
-    send_telegram_message("🚀 <b>Сканер 24/7 успешно запущен на облачном сервере Render!</b>")
-    
-    # 2. Бесконечный цикл сканирования
     while True:
         try:
             scan_lines()
