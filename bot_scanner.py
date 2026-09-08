@@ -19,7 +19,7 @@ import pytz
 # ============================================================================
 TELEGRAM_TOKEN = "8604691930:AAHrF69O3VVkamn-RB7IJGexYj86N8Dq3Uo"
 TELEGRAM_CHAT_ID = "5770149140"
-ODDS_API_KEY = "aa68140b05d3fb8a1619dd2bdf7286e7"
+ODDS_API_KEY = "e52a2e83ee525bf2322db7493a772baa"
 
 MSK_TZ = pytz.timezone("Europe/Moscow")
 DB_FILE = "sent_matches.json"
