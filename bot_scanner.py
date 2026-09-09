@@ -224,5 +224,5 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Глобальная ошибка: {e}")
         
-        print("\n⏳ Следующая проверка через 30 минут...")
-        time.sleep(1800)
+        print("\n⏳ Следующая проверка через 5 минут...")
+         time.sleep(300)
